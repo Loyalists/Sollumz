@@ -30,18 +30,22 @@ bl_info = {
 
 if "bpy" in locals():
     import importlib
+    importlib.reload(properties)
     importlib.reload(shaderoperators)
     importlib.reload(ydrimport)
     importlib.reload(ydrexport)
     importlib.reload(ybnimport)
+    importlib.reload(yftimport)
     importlib.reload(sollumz_ui)
     importlib.reload(collisionmatoperators)
     importlib.reload(tools)
 else:
+    from . import properties
     from . import shaderoperators
     from . import ydrimport
     from . import ydrexport 
     from . import ybnimport 
+    from . import yftimport 
     from . import sollumz_ui
     from . import collisionmatoperators
     from . import tools
@@ -49,20 +53,24 @@ else:
 import bpy
 
 def register():
+    properties.register()
     shaderoperators.register()
     ydrimport.register()
     ydrexport.register()
     sollumz_ui.register()
     collisionmatoperators.register()
     ybnimport.register()
-    
+    yftimport.register()
+
 def unregister():
+    properties.unregister()
     shaderoperators.unregister()
     ydrimport.unregister()
     ydrexport.unregister()
     sollumz_ui.unregister()
     collisionmatoperators.unregister()
     ybnimport.unregister()
+    yftimport.unregister()
 
 if __name__ == "__main__":
     register() 

@@ -1,7 +1,7 @@
 import bpy
 import os
 import xml.etree.ElementTree as ET
-from mathutils import Vector, Quaternion
+from mathutils import Vector, Quaternion, Matrix
 from bpy_extras.io_utils import ImportHelper
 from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy.types import Operator
@@ -170,6 +170,9 @@ def create_material(filepath, td_node, shader):
             texture_dictionary.append(i)
     
     shadern = shader.find("FileName").text
+    if not shadern:
+        shadern = "default.sps"
+
     bpy.ops.sollum.createvshader(shadername = shadern)
     mat = bpy.context.scene.last_created_material
     
@@ -179,7 +182,7 @@ def create_material(filepath, td_node, shader):
             if(isinstance(n, bpy.types.ShaderNodeTexImage)):
                 if(p.attrib["name"] == n.name):
                     texture_pos = p.find("Name")
-                    if(hasattr(texture_pos, 'text')):
+                    if(texture_pos != None and texture_pos.text != None and hasattr(texture_pos, 'text')):
                         texture_name = texture_pos.text + ".dds" 
                         texture_path = texture_dir + texture_name
                         n.texture_name = texture_name
@@ -439,7 +442,12 @@ def get_vertexs_from_data(vb):
 
     vertexs = []
     for v in v_buffer:
-        n = v.split(" " * 3) #each vert value is split by 3 spaces
+        #each vert value is split by 3 spaces
+        if v[0] == " ":
+            n = v.lstrip().split(" " * 3) 
+        else:
+            n = v.split(" " * 3) 
+
         position = []
         if(pos_idx != -1):
             for num in n[pos_idx].split():
@@ -535,7 +543,6 @@ def read_model_info(self, context, filepath, model, shaders, name, bones):
     v_buffer = vb[2].text.strip().replace("\n", "").split(" " * 7) #split by 7 gets you each line of the data
     ib = model.find("IndexBuffer")
     i_buffer = ib[0].text.strip().replace("\n", "").split()
-
     vertexs = get_vertexs_from_data(vb)
 
     i_buf = []
@@ -603,6 +610,51 @@ def read_drawable_models(self, context, filepath, root, name, shd_node, td_node,
         
     return drawable_objects
 
+def build_bones_dict(armature):
+    if (armature == None):
+        return None
+
+    bones_dict = {}
+    for pose_bone in armature.pose.bones:
+        bones_dict[pose_bone.bone_properties.id] = pose_bone.name
+
+    return bones_dict
+
+def read_joints(self, context, filepath, root, bones_dict=None):
+
+    joints_node = root.find("Joints")
+    if (joints_node == None):
+        return None
+
+    rotationlimits_node = joints_node.find("RotationLimits")
+    if (rotationlimits_node == None):
+        return None
+
+    armature = context.object
+    if (bones_dict == None):
+        bones_dict = build_bones_dict(armature)
+
+    rotationlimits = []
+    for rotationlimits_item in rotationlimits_node:
+        rotationlimits_bone_id = rotationlimits_item.find("BoneId")
+        rotationlimits_min = rotationlimits_item.find("Min")
+        rotationlimits_max = rotationlimits_item.find("Max")
+        bone = armature.pose.bones.get(bones_dict[int(rotationlimits_bone_id.attrib["value"])])
+        constraint = bone.constraints.new('LIMIT_ROTATION')
+        constraint.owner_space = 'LOCAL'
+        constraint.use_limit_x = True
+        constraint.use_limit_y = True
+        constraint.use_limit_z = True
+        constraint.max_x = float(rotationlimits_max.attrib["x"])
+        constraint.max_y = float(rotationlimits_max.attrib["y"])
+        constraint.max_z = float(rotationlimits_max.attrib["z"])
+        constraint.min_x = float(rotationlimits_min.attrib["x"])
+        constraint.min_y = float(rotationlimits_min.attrib["y"])
+        constraint.min_z = float(rotationlimits_min.attrib["z"])
+        rotationlimits.append(bone.name)
+
+    return rotationlimits
+
 def read_bones(self, context, filepath, root):
 
     skeleton_node = root.find("Skeleton")
@@ -610,43 +662,74 @@ def read_bones(self, context, filepath, root):
         return None, None
 
     bones = []
+    bones_dict = {}
+    flags_list = []
+    flags_restricted = set(["LimitRotation", "Unk0"])
     drawable_name = root.find("Name").text
     bones_node = skeleton_node.find("Bones")
-    armature = context.object.data
+    armature = context.object
     bpy.ops.object.mode_set(mode='EDIT')
 
-    for bone_node in bones_node:
-        bone_name = bone_node.find("Name")
-        bone_parentindex = bone_node.find("ParentIndex")
-        bone_translation = bone_node.find("Translation")
-        bone_rotation = bone_node.find("Rotation")
+    for bones_item in bones_node:
+        name_item = bones_item.find("Name")
+        tag_item = bones_item.find("Tag")
+        parentindex_item = bones_item.find("ParentIndex")
+        flags_item = bones_item.find("Flags")
+        translation_item = bones_item.find("Translation")
+        rotation_item = bones_item.find("Rotation")
+        scale_item = bones_item.find("Scale")
 
         quaternion = Quaternion()
-        quaternion.w = float(bone_rotation.attrib["w"])
-        quaternion.x = float(bone_rotation.attrib["x"])
-        quaternion.y = float(bone_rotation.attrib["y"])
-        quaternion.z = float(bone_rotation.attrib["z"])
-        matrix = quaternion.to_matrix().to_4x4()
+        quaternion.w = float(rotation_item.attrib["w"])
+        quaternion.x = float(rotation_item.attrib["x"])
+        quaternion.y = float(rotation_item.attrib["y"])
+        quaternion.z = float(rotation_item.attrib["z"])
+        mat_rot = quaternion.to_matrix().to_4x4()
 
         trans = Vector()
-        trans.x = float(bone_translation.attrib["x"])
-        trans.y = float(bone_translation.attrib["y"])
-        trans.z = float(bone_translation.attrib["z"])
+        trans.x = float(translation_item.attrib["x"])
+        trans.y = float(translation_item.attrib["y"])
+        trans.z = float(translation_item.attrib["z"])
+        mat_loc = Matrix.Translation(trans)
 
-        edit_bone = armature.edit_bones.new(bone_name.text)
-        if bone_parentindex.attrib["value"] != "-1":
-            edit_bone.parent = armature.edit_bones[int(bone_parentindex.attrib["value"])]
+        scale = Vector()
+        scale.x = float(scale_item.attrib["x"])
+        scale.y = float(scale_item.attrib["y"])
+        scale.z = float(scale_item.attrib["z"])
+        mat_sca = Matrix.Scale(1, 4, scale)
+
+        edit_bone = armature.data.edit_bones.new(name_item.text)
+        # edit_bone.bone_id = int(bone_tag.attrib["value"])
+        if parentindex_item.attrib["value"] != "-1":
+            edit_bone.parent = armature.data.edit_bones[int(parentindex_item.attrib["value"])]
 
         # https://github.com/LendoK/Blender_GTA_V_model_importer/blob/master/importer.py
         edit_bone.head = (0,0,0)
         edit_bone.tail = (0,0.05,0)
-        edit_bone.matrix = matrix
-        edit_bone.translate(trans)
+        edit_bone.matrix = mat_loc @ mat_rot @ mat_sca
         if edit_bone.parent != None:
             edit_bone.matrix = edit_bone.parent.matrix @ edit_bone.matrix
 
+        if (flags_item != None and flags_item.text != None):
+            flags = flags_item.text.strip().split(", ")
+            flags_list.append(flags)
+
         # build a bones lookup table
-        bones.append(bone_name.text)
+        bones.append(name_item.text)
+        bones_dict[int(tag_item.attrib["value"])] = name_item.text
+
+    bpy.ops.object.mode_set(mode='POSE')
+
+    i = 0
+    for tag, name in bones_dict.items():
+        armature.pose.bones[name].bone_properties.id = tag
+        for _flag in flags_list[i]:
+            if (_flag in flags_restricted):
+                continue
+
+            flag = armature.pose.bones[name].bone_properties.flags.add()
+            flag.name = _flag
+        i = i + 1
 
     bpy.ops.object.mode_set(mode='OBJECT')
     return bones, drawable_name
@@ -731,6 +814,7 @@ class ImportYDR(Operator, ImportHelper):
         context.scene.collection.objects.link(vmodel_obj)
         context.view_layer.objects.active = vmodel_obj
         ydr_objs = read_ydr_xml(self, context, self.filepath, root)
+
         for obj in ydr_objs:
             context.scene.collection.objects.link(obj)
             obj.parent = vmodel_obj

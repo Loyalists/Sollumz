@@ -776,6 +776,9 @@ def write_shader_node(mat):
     
     params_node = Element("Parameters")
     
+    if (mat.node_tree == None):
+        return None
+
     mat_nodes = mat.node_tree.nodes
     for node in mat_nodes:
         if(isinstance(node, bpy.types.ShaderNodeTexImage)):
@@ -804,6 +807,9 @@ def write_shaders_node(materials):
 
     for mat in materials:
         shader_node = write_shader_node(mat)
+        if (shader_node == None):
+            continue
+        
         shaders_node.append(shader_node)
         
     #print(prettify(shader_node))    
@@ -814,6 +820,12 @@ def write_tditem_node(exportpath, mat):
     
     i_nodes = []
     
+    if (mat == None):
+        return None
+
+    if (mat.node_tree == None):
+        return None
+
     mat_nodes = mat.node_tree.nodes
     for node in mat_nodes:
         if(isinstance(node, bpy.types.ShaderNodeTexImage)):
@@ -953,6 +965,9 @@ def write_texturedictionary_node(materials, exportpath):
     for mat in materials:
         i_nodes = write_tditem_node(exportpath, mat)
         
+        if (i_nodes == None):
+            continue
+
         for node in i_nodes:
             if(node != None):
                 all_nodes.append(node)

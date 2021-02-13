@@ -370,15 +370,35 @@ def read_bounds(name, bounds):
     #read children 
     for child in bounds.find("Children"):
         #read materials
-        materials = create_materials(child.find("Materials"))   
+        materials_node = child.find("Materials")
+        if (materials_node == None):
+            bobj = bpy.data.objects.new("GeometryBVH", None)  
+            bobj.parent = cobj
+            bpy.context.scene.collection.objects.link(bobj)
+            continue
+
+        materials = create_materials(materials_node)   
         
-        bobj = bpy.data.objects.new("GeometryBVH", None)
+        bobj = bpy.data.objects.new("GeometryBVH_TEMP", None)
         
+        composite_pos_item = child.find("CompositePosition")
+        composite_rot_item = child.find("CompositeRotation")
+        composite_sca_item = child.find("CompositeScale")
+        composite_pos = Vector()
+        composite_rot = Quaternion()
+        composite_sca = Vector()
+        if (composite_pos_item != None):
+            composite_pos = Vector((float(composite_pos_item.attrib["x"]), float(composite_pos_item.attrib["y"]), float(composite_pos_item.attrib["z"])))
+
+        if (composite_rot_item != None):
+            composite_rot = Quaternion((float(composite_rot_item.attrib["w"]), float(composite_rot_item.attrib["x"]), float(composite_rot_item.attrib["y"]), float(composite_rot_item.attrib["z"])))
+
+        if (composite_sca_item != None):
+            composite_sca = Vector((float(composite_sca_item.attrib["x"]), float(composite_sca_item.attrib["y"]), float(composite_sca_item.attrib["z"])))
+
         geocenter = child.find("GeometryCenter")
         location = Vector((float(geocenter.attrib["x"]), float(geocenter.attrib["y"]), float(geocenter.attrib["z"])))
-        
-        bobj.location = location
-        
+
         vertices = get_all_vertexs(child.find("Vertices"))  
         
         indicies = []
@@ -427,13 +447,15 @@ def read_bounds(name, bounds):
         
         mesh = bpy.data.meshes.new("Geometry")
         mesh.from_pydata(vertices, [], indicies)
-        bobj = bpy.data.objects.new("GeometryBVH", mesh)  
+        bobj = bpy.data.objects.new("GeometryBVH", mesh)
+        bobj.location = location + composite_pos
+        bobj.rotation_quaternion = composite_rot
+        bobj.scale = composite_sca
         for poly in polys:
             poly.parent = bobj
-        
+
         bobj.parent = cobj
         bpy.context.scene.collection.objects.link(bobj)
-        
         #clean up old verts
         #bobj.select_set(True)
         #bpy.ops.object.mode_set(mode='EDIT')
@@ -460,6 +482,12 @@ class ImportYbnXml(Operator, ImportHelper):
 
     # ImportHelper mixin class uses this
     filename_ext = ".ybn.xml"
+
+    filter_glob: StringProperty(
+        default="*.ybn.xml",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
 
     def execute(self, context):
         tree = ET.parse(self.filepath)
