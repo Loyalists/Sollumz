@@ -11,6 +11,11 @@ import os
 import sys 
 import shutil
 import ntpath
+import bmesh
+import math
+import numpy as np
+from numpy import dot
+from numpy.linalg import norm
 from datetime import datetime 
 from . import shaderoperators as Shader
 from .tools import jenkhash as JenkHash
@@ -24,60 +29,6 @@ def get_obj_children(obj):
             children.append(ob) 
 
     return children 
-
-def order_vertex_list(list, vlayout):
-    layout_map = {
-        "Position": 0,
-        "Normal": 1,
-        "Colour0": 2,
-        "Colour1": 3,
-        "TexCoord0": 4,
-        "TexCoord1": 5,
-        "TexCoord2": 6,
-        "TexCoord3": 7,
-        "TexCoord4": 8,
-        "TexCoord5": 9,
-        "Tangent": 10,
-        "BlendWeights": 11,
-        "BlendIndices": 12,
-    }
-
-    newlist = []
-
-    for i in range(len(vlayout)):
-        layout_key = layout_map[vlayout[i]]
-        if layout_key != None:
-            if list[layout_key] == None:
-                raise TypeError("Missing layout item " + vlayout[i])
-
-            newlist.append(list[layout_key])
-        else:
-            print('Incorrect layout element', vlayout[i])
-
-    if (len(newlist) != len(vlayout)):
-        print('Incorrect layout parse')
-
-    return newlist
-
-def vector_tostring(vector):
-    try:
-        string = [str(vector.x), str(vector.y)]
-        if(hasattr(vector, "z")):
-            string.append(str(vector.z))
-
-        if(hasattr(vector, "w")):
-            string.append(str(vector.w))
-
-        return " ".join(string)
-    except:
-        return None
-
-def meshloopcolor_tostring(color):
-    try:
-        string = " ".join(str(round(color[i] * 255)) for i in range(4))
-        return string 
-    except:
-        return None
     
 def process_uv(uv):
     u = uv[0]
@@ -85,9 +36,58 @@ def process_uv(uv):
 
     return [u, v]
 
+def get_similarity(a, b):
+    # cosine similarity
+    similarity = dot(a, b)/(norm(a)*norm(b))
+    return similarity
+
+def get_distance(a, b):
+    # distance
+    dist = math.sqrt(abs(a[0]-b[0])**2 + abs(a[1]-b[1])**2)
+    return dist
+
+def get_manhattan_distance(a, b):
+    # manhattan distance
+    dist = abs(a[0]-b[0]) + abs(a[1]-b[1])
+    return dist
+
 def get_vertex_string(obj, vlayout, bones, depsgraph):
     mesh = bpy.data.meshes.new_from_object(obj, preserve_all_data_layers=True, depsgraph=depsgraph)
-    
+
+    # vertices sanitizing
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    uv_layer = bm.loops.layers.uv.active
+    vert_uv_map = {}
+    unsafe_verts = set()
+
+    for face in bm.faces:
+        for loop in face.loops:
+            vert = loop.vert
+            uv = loop[uv_layer].uv
+            value = vert_uv_map.get(vert)
+            if value is None:
+                vert_uv_map[vert] = uv
+            else:
+                if not (vert in unsafe_verts):
+                    indicator = get_distance(value, uv)
+                    if indicator > 0.0001:
+                        unsafe_verts.add(vert)
+
+    for vert in unsafe_verts:
+        edges = []
+        for edge in vert.link_edges:
+            # deal with special cases
+            if edge.other_vert(vert) in unsafe_verts:
+                edges.append(edge)
+
+        bmesh.utils.vert_separate(vert, edges)
+
+    bmesh.ops.split(bm, use_only_faces=True)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update(calc_edges=True, calc_edges_loose=True)
+
     vertamount = len(mesh.vertices)
     texcoords = {}
 
@@ -126,6 +126,9 @@ def get_vertex_string(obj, vlayout, bones, depsgraph):
     for poly in mesh.polygons:
         for loop_index in range(poly.loop_start, poly.loop_start + poly.loop_total):
             vi = mesh.loops[loop_index].vertex_index
+            if vb.vertices[vi] is not None:
+                continue
+            
             vertex = Vertex()
             vertex.position = mesh.vertices[vi].co
             vertex.normal = mesh.loops[loop_index].normal
@@ -186,7 +189,9 @@ def get_vertex_string(obj, vlayout, bones, depsgraph):
 
     vb.vertices_to_data()
 
-    return vb
+    ib = get_index_string(mesh)
+
+    return vb, ib
 
 def get_index_string(mesh):
     
@@ -242,14 +247,14 @@ def write_model_node(objs, materials, bones):
     depsgraph = bpy.context.evaluated_depsgraph_get()
     for obj in objs:
         obj_eval = obj.evaluated_get(depsgraph)
-        model = bpy.data.meshes.new_from_object(obj_eval, preserve_all_data_layers=True, depsgraph=depsgraph)
-        
+        mesh = bpy.data.meshes.new_from_object(obj_eval, preserve_all_data_layers=True, depsgraph=depsgraph)
+
         i_node = Geometry()
         
         shader_index = 0
         shader = None
         for idx in range(len(materials)):
-            if(model.materials[0] == materials[idx]):
+            if(mesh.materials[0] == materials[idx]):
                 shader_index = idx
                 shader = materials[idx] 
 
@@ -268,10 +273,8 @@ def write_model_node(objs, materials, bones):
         print('Processing shader', shader_index, shader.name)
         vlayout = get_vertex_layout(shader.name)
 
-        vb = get_vertex_string(obj_eval, vlayout, bones, depsgraph)
+        vb, ib = get_vertex_string(obj_eval, vlayout, bones, depsgraph)
         i_node.vertex_buffer = vb
-
-        ib = get_index_string(model)
         i_node.index_buffer = ib
 
         m_node.geometries.append(i_node)

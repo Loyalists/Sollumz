@@ -8,6 +8,24 @@ from ..tools import xmlhelper, xml
 from .shader import ShaderGroup
 from collections import deque
 
+layout_map = {
+    "Position": 0,
+    "Normal": 1,
+    "Colour0": 2,
+    "Colour1": 3,
+    "TexCoord0": 4,
+    "TexCoord1": 5,
+    "TexCoord2": 6,
+    "TexCoord3": 7,
+    "TexCoord4": 8,
+    "TexCoord5": 9,
+    "TexCoord6": 10,
+    "TexCoord7": 11,
+    "Tangent": 12,
+    "BlendWeights": 13,
+    "BlendIndices": 14,
+}
+
 class Bone:
 
     def __init__(self):
@@ -373,24 +391,6 @@ class Vertex:
 
         if self.blendindices is not None:
             vertex_str[14] = ' '.join(str(i) for i in self.blendindices)
-
-        layout_map = {
-            "Position": 0,
-            "Normal": 1,
-            "Colour0": 2,
-            "Colour1": 3,
-            "TexCoord0": 4,
-            "TexCoord1": 5,
-            "TexCoord2": 6,
-            "TexCoord3": 7,
-            "TexCoord4": 8,
-            "TexCoord5": 9,
-            "TexCoord6": 10,
-            "TexCoord7": 11,
-            "Tangent": 12,
-            "BlendWeights": 13,
-            "BlendIndices": 14,
-        }
 
         newlist = deque()
 
