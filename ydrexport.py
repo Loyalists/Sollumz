@@ -43,7 +43,7 @@ def get_similarity(a, b):
 
 def get_distance(a, b):
     # distance
-    dist = math.sqrt(abs(a[0]-b[0])**2 + abs(a[1]-b[1])**2)
+    dist = math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
     return dist
 
 def get_manhattan_distance(a, b):
@@ -61,7 +61,7 @@ def get_vertex_string(obj, vlayout, bones, depsgraph):
     bmesh.ops.split(bm, use_only_faces=True)
     uv_layer = bm.loops.layers.uv.active
     vert_uv_map = {}
-    unsafe_loops = deque()
+    unsafe_verts = set()
     for face in bm.faces:
         for loop in face.loops:
             vert = loop.vert
@@ -70,14 +70,23 @@ def get_vertex_string(obj, vlayout, bones, depsgraph):
             if value is None:
                 vert_uv_map[vert] = uv
             else:
+                if vert in unsafe_verts:
+                    continue
+
                 indicator = get_distance(value, uv)
                 if indicator > 0.0001:
-                    unsafe_loops.append(loop)
-    
-    for loop in unsafe_loops:
-        bmesh.utils.loop_separate(loop)
+                    unsafe_verts.add(vert)
 
-    unsafe_loops.clear()
+    for vert in unsafe_verts:
+        edges = []
+        for edge in vert.link_edges:
+            if not edge.other_vert(vert) in unsafe_verts:
+                continue
+
+            edges.append(edge)
+
+        bmesh.utils.vert_separate(vert, edges)
+
     bm.to_mesh(mesh)
     bm.free()
     mesh.update(calc_edges=True, calc_edges_loose=True)
