@@ -57,10 +57,11 @@ def get_vertex_string(obj, vlayout, bones, depsgraph):
     # vertices sanitizing
     bm = bmesh.new()
     bm.from_mesh(mesh)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bmesh.ops.split(bm, use_only_faces=True)
     uv_layer = bm.loops.layers.uv.active
     vert_uv_map = {}
-    unsafe_verts = set()
-
+    unsafe_loops = deque()
     for face in bm.faces:
         for loop in face.loops:
             vert = loop.vert
@@ -69,21 +70,14 @@ def get_vertex_string(obj, vlayout, bones, depsgraph):
             if value is None:
                 vert_uv_map[vert] = uv
             else:
-                if not (vert in unsafe_verts):
-                    indicator = get_distance(value, uv)
-                    if indicator > 0.0001:
-                        unsafe_verts.add(vert)
+                indicator = get_distance(value, uv)
+                if indicator > 0.0001:
+                    unsafe_loops.append(loop)
+    
+    for loop in unsafe_loops:
+        bmesh.utils.loop_separate(loop)
 
-    for vert in unsafe_verts:
-        edges = []
-        for edge in vert.link_edges:
-            # deal with special cases
-            if edge.other_vert(vert) in unsafe_verts:
-                edges.append(edge)
-
-        bmesh.utils.vert_separate(vert, edges)
-
-    bmesh.ops.split(bm, use_only_faces=True)
+    unsafe_loops.clear()
     bm.to_mesh(mesh)
     bm.free()
     mesh.update(calc_edges=True, calc_edges_loose=True)
